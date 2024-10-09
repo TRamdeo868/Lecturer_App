@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="session_type_array">
+        <item>Lecture</item>
+        <item>Lab</item>
+        <item>Tutorial</item>
+        <item>Seminar</item>
+    </string-array>
+</resources>

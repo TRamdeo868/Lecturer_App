@@ -1,0 +1,91 @@
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".StartClassActivity">
+
+    <!-- Course Name -->
+    <EditText
+        android:id="@+id/course_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="Course Name"
+        android:inputType="text"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- Course Code -->
+    <EditText
+        android:id="@+id/course_code"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="Course Code"
+        android:inputType="text"
+        app:layout_constraintTop_toBottomOf="@+id/course_name"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- Session Type Spinner -->
+    <Spinner
+        android:id="@+id/session_type_spinner"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:entries="@array/session_type_array"
+        app:layout_constraintTop_toBottomOf="@+id/course_code"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- Session Number -->
+    <EditText
+        android:id="@+id/session_number"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="Session Number"
+        android:inputType="number"
+        app:layout_constraintTop_toBottomOf="@+id/session_type_spinner"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- WiFi-Direct SSID -->
+    <EditText
+        android:id="@+id/wifi_ssid"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="WiFi-Direct SSID"
+        android:inputType="text"
+        app:layout_constraintTop_toBottomOf="@+id/session_number"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- WiFi-Direct Password -->
+    <EditText
+        android:id="@+id/wifi_password"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="WiFi-Direct Password"
+        android:inputType="textPassword"
+        app:layout_constraintTop_toBottomOf="@+id/wifi_ssid"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+    <!-- Start Class Button -->
+    <Button
+        android:id="@+id/start_class_button"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Start Class"
+        app:layout_constraintTop_toBottomOf="@+id/wifi_password"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
