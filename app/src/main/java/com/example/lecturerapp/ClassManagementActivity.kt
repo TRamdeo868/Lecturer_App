@@ -95,8 +95,6 @@ class ClassManagementActivity : AppCompatActivity() {
             }
         }
 
-
-
         if (tcpServer.isRunning()) {
             Log.d("ClassManagementActivity", "Server is running")
         } else {

@@ -162,6 +162,4 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
             Log.e("TcpServer", "Client socket for $currentChatStudentId not found")
         }
     }
-
-
 }
