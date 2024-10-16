@@ -63,8 +63,6 @@ class ClassManagementActivity : AppCompatActivity() {
     private lateinit var aesKey: SecretKeySpec
     private lateinit var aesIv: IvParameterSpec
 
-    private val studentIds = List(10) { (816034662 + it).toString() }
-
     private val REQUEST_CODE_PERMISSIONS = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -21,6 +21,7 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
 
     private val serverSocket: ServerSocket = ServerSocket(port, 0, InetAddress.getByName("192.168.100.196"))
     private val clientMap: HashMap<String, Socket> = HashMap()
+    private val studentIds = List(10) { (816117992 + it).toString() }
 
     init {
         Log.e("TcpServer", "Server is starting on port $port ip address: ${serverSocket.inetAddress.hostAddress}")
@@ -28,7 +29,7 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
             while (true) {
                 try {
                     val clientSocket = serverSocket.accept()
-                    Log.e("TcpServer", "Accepted a connection from: ${clientSocket.inetAddress.hostAddress}")
+                    Log.e("TcpServer", "Accepted a connection from: ${clientSocket.inetAddress.hostName}")
                     handleClientSocket(clientSocket)
                 } catch (e: Exception) {
                     Log.e("TcpServer", "Error accepting connection", e)
@@ -54,7 +55,7 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
                     while (socket.isConnected) {
                         try {
                             val studentMessage = reader.readLine()
-                            if (studentMessage != null) {
+                            if (studentMessage != null && studentIds.contains(studentMessage)) {
                                 Log.e(
                                     "TcpServer",
                                     "Received message from $it: $studentMessage"
@@ -83,7 +84,7 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
                                 }
                             }
                         } catch (e: Exception) {
-                            Log.e("TcpServer", "Error with client $it", e)
+                            Log.e("TcpServer", "Error with client $it, not part of class", e)
                             break
                         }
                     }
