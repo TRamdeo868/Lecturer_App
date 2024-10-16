@@ -8,10 +8,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.wifi.p2p.WifiP2pDeviceList
+import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -61,8 +63,6 @@ class ClassManagementActivity : AppCompatActivity() {
     private lateinit var aesKey: SecretKeySpec
     private lateinit var aesIv: IvParameterSpec
 
-    private val studentIds = List(10) { (816034662 + it).toString() }
-
     private val REQUEST_CODE_PERMISSIONS = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +86,19 @@ class ClassManagementActivity : AppCompatActivity() {
         // Get Intent data from StartClassActivity
         retrieveIntentData()
 
+        tcpServer = TcpServer(8888) { message ->
+            // Handle incoming messages
+            runOnUiThread {
+                chatMessagesTextView.append("\nStudent: $message")
+            }
+        }
+
+        if (tcpServer.isRunning()) {
+            Log.d("ClassManagementActivity", "Server is running")
+        } else {
+            Log.e("ClassManagementActivity", "Server failed to start")
+        }
+
         // Setup RecyclerView
         attendeesAdapter = AttendeesAdapter(this, attendeesList) { studentId ->
             openChat(studentId) // Open chat when button is clicked
@@ -102,6 +115,10 @@ class ClassManagementActivity : AppCompatActivity() {
 
         // Register BroadcastReceiver for Wi-Fi Direct events
         registerPeerReceiver()
+
+        sendMessageButton.setOnClickListener{
+            sendMessage()
+        }
     }
 
     private fun initializeViews() {
@@ -120,27 +137,31 @@ class ClassManagementActivity : AppCompatActivity() {
         closeChatButton = findViewById(R.id.close_chat_button)
     }
 
+    @SuppressLint("MissingPermission")
     private fun retrieveIntentData() {
         val courseName = intent.getStringExtra("course_name") ?: "N/A"
         val courseCode = intent.getStringExtra("course_code") ?: "N/A"
-        val wifiSsid = intent.getStringExtra("wifi_ssid") ?: "N/A"
-        val wifiPassword = intent.getStringExtra("wifi_password") ?: "N/A"
         courseSessionNumber = intent.getStringExtra("session_number") ?: "N/A"
         sessionType = intent.getStringExtra("session_type") ?: "N/A"
         startTime = System.currentTimeMillis()
 
         // Display Class and Network Info
-        classInfoTextView.text = """
-            Course Name: $courseName
-            Course Code: $courseCode
-            Session Number: $courseSessionNumber
-            Session Type: $sessionType
-        """.trimIndent()
+         wifiP2pManager.requestGroupInfo(channel){group ->
+             val ssid = group.networkName
+             val password = group.passphrase
 
-        networkInfoTextView.text = """
-            Network SSID: $wifiSsid
-            Network Password: $wifiPassword
-        """.trimIndent()
+             classInfoTextView.text = """
+                Course Name: $courseName
+                Course Code: $courseCode
+                Session Number: $courseSessionNumber
+                Session Type: $sessionType
+                """.trimIndent()
+
+             networkInfoTextView.text = """
+                Network SSID: $ssid
+                Network Password: $password
+                """.trimIndent()
+         }
 
         // Initialize AES key and IV (You may want to modify this part according to your logic)
         val seed = "your_seed_based_on_logic" // Replace this with actual seed logic
@@ -286,6 +307,7 @@ class ClassManagementActivity : AppCompatActivity() {
             val encryptedMessage = encryptMessage(message) // Encrypt the message
             // Send the encrypted message logic here
             // e.g., sendMessageToStudent(currentChatStudentId, encryptedMessage)
+            tcpServer.sendMessage(currentChatStudentId!!, message)
 
             // For display purposes, just show it in chat messages view
             chatMessagesTextView.append("\nMe: $message")

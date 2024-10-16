@@ -1,6 +1,7 @@
 package com.example.lecturerapp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.net.wifi.WifiManager
 import android.content.Context
 import android.content.Intent
@@ -18,6 +19,7 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.net.InetAddress
 
 class StartClassActivity : AppCompatActivity() {
 
@@ -25,10 +27,9 @@ class StartClassActivity : AppCompatActivity() {
     private lateinit var courseCode: EditText
     private lateinit var sessionTypeSpinner: Spinner
     private lateinit var sessionNumber: EditText
-    private lateinit var wifiSSID: EditText
-    private lateinit var wifiPassword: EditText
     private lateinit var startClassButton: Button
 
+    private var server: TcpServer? = null
     private lateinit var wifiP2pManager: WifiP2pManager
     private lateinit var channel: WifiP2pManager.Channel
     private var isGroupCreated = false
@@ -44,8 +45,6 @@ class StartClassActivity : AppCompatActivity() {
         courseCode = findViewById(R.id.course_code)
         sessionTypeSpinner = findViewById(R.id.session_type_spinner)
         sessionNumber = findViewById(R.id.session_number)
-        wifiSSID = findViewById(R.id.wifi_ssid)
-        wifiPassword = findViewById(R.id.wifi_password)
         startClassButton = findViewById(R.id.start_class_button)
 
         // Initialize Wi-Fi Direct
@@ -94,12 +93,10 @@ class StartClassActivity : AppCompatActivity() {
         val courseCodeText = courseCode.text.toString().trim()
         val sessionType = sessionTypeSpinner.selectedItem?.toString() ?: ""
         val sessionNumberText = sessionNumber.text.toString().trim()
-        val ssid = wifiSSID.text.toString().trim()
-        val password = wifiPassword.text.toString().trim()
+
 
         // Check if all fields are filled
-        if (courseNameText.isNotEmpty() && courseCodeText.isNotEmpty() && sessionNumberText.isNotEmpty()
-            && ssid.isNotEmpty() && password.isNotEmpty()) {
+        if (courseNameText.isNotEmpty() && courseCodeText.isNotEmpty() && sessionNumberText.isNotEmpty()) {
 
             // Create Wi-Fi Direct group
             createGroup()
@@ -137,6 +134,7 @@ class StartClassActivity : AppCompatActivity() {
             .build()
 
         wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
+            @SuppressLint("MissingPermission")
             override fun onSuccess() {
                 Log.d("StartClassActivity", "Group created successfully!")
                 Toast.makeText(this@StartClassActivity, "Group created successfully!", Toast.LENGTH_SHORT).show()
@@ -147,8 +145,6 @@ class StartClassActivity : AppCompatActivity() {
                 val intent = Intent(this@StartClassActivity, ClassManagementActivity::class.java)
                 intent.putExtra("course_name", courseName.text.toString().trim())
                 intent.putExtra("course_code", courseCode.text.toString().trim())
-                intent.putExtra("wifi_ssid", wifiSSID.text.toString().trim())
-                intent.putExtra("wifi_password", wifiPassword.text.toString().trim()) // Add this line
                 intent.putExtra("session_number", sessionNumber.text.toString()) // Add session number
                 intent.putExtra("session_type", sessionTypeSpinner.selectedItem?.toString() ?: "") // Add session type
                 startActivity(intent)
@@ -190,4 +186,6 @@ class StartClassActivity : AppCompatActivity() {
             }
         })
     }
+
+
 }

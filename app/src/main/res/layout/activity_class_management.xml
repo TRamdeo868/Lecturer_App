@@ -67,21 +67,21 @@
         android:id="@+id/chat_interface"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:visibility="gone"
         android:orientation="vertical"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/attendees_recycler_view"
-        app:layout_constraintHeight_percent="0.5"> <!-- Takes 50% of the screen -->
+        app:layout_constraintHeight_percent="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/attendees_recycler_view"> <!-- Takes 50% of the screen -->
 
         <TextView
             android:id="@+id/chat_with_student"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:padding="8dp"
             android:text="Chat with Student"
-            android:textStyle="bold"
-            android:padding="8dp" />
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/message_input"
