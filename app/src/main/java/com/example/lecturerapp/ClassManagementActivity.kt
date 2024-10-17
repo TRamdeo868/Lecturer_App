@@ -331,6 +331,7 @@ class ClassManagementActivity : AppCompatActivity() {
 
     private fun endSession() {
         // End the session logic here
+        tcpServer.close()
         Toast.makeText(this, "Session ended", Toast.LENGTH_SHORT).show()
         finish()
     }
