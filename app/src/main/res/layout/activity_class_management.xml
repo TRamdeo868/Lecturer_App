@@ -12,11 +12,12 @@
         android:id="@+id/class_info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:padding="16dp"
         android:textSize="20sp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:padding="16dp" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:visibility="visible" />
 
     <!-- Network Info -->
     <TextView
@@ -53,16 +54,20 @@
         android:layout_marginTop="16dp" />
 
     <!-- Attendees List -->
+
+    <!-- Chat Interface -->
+    <!-- Chat Interface -->
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/attendees_recycler_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:padding="16dp"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintTop_toBottomOf="@id/end_session_button"
-        app:layout_constraintBottom_toTopOf="@id/chat_interface"
-        android:padding="16dp" />
+        app:layout_constraintVertical_bias="0.038"
+        tools:layout_editor_absoluteX="0dp" />
 
-    <!-- Chat Interface -->
-    <!-- Chat Interface -->
     <LinearLayout
         android:id="@+id/chat_interface"
         android:layout_width="0dp"
@@ -73,7 +78,8 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHeight_percent="0.5"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/attendees_recycler_view"> <!-- Takes 50% of the screen -->
+        app:layout_constraintTop_toBottomOf="@id/attendees_recycler_view"
+        tools:visibility="gone"> <!-- Takes 50% of the screen -->
 
         <TextView
             android:id="@+id/chat_with_student"
@@ -106,8 +112,7 @@
             android:id="@+id/close_chat_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Close Chat"
-            android:visibility="gone" /> <!-- Initially hidden -->
+            android:text="Close Chat" /> <!-- Initially hidden -->
     </LinearLayout>
 
 
