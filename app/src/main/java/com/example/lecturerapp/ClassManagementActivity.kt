@@ -86,24 +86,24 @@ class ClassManagementActivity : AppCompatActivity() {
         // Get Intent data from StartClassActivity
         retrieveIntentData()
 
+        // Initialize TcpServer and handle incoming messages
         tcpServer = TcpServer(8888) { message ->
-            // Handle incoming messages
             runOnUiThread {
-                chatMessagesTextView.append("\nStudent: $message")
+                chatMessagesTextView.append("\nStudent: ${decryptMessage(message)}")
             }
         }
 
+        // Check if TcpServer is running
         if (tcpServer.isRunning()) {
             Log.d("ClassManagementActivity", "Server is running")
         } else {
             Log.e("ClassManagementActivity", "Server failed to start")
         }
 
-        // Setup RecyclerView
+        // Setup RecyclerView for attendees
         attendeesAdapter = AttendeesAdapter(this, attendeesList) { studentId ->
             openChat(studentId) // Open chat when button is clicked
         }
-
         attendeesRecyclerView.layoutManager = LinearLayoutManager(this)
         attendeesRecyclerView.adapter = attendeesAdapter
 
@@ -116,9 +116,8 @@ class ClassManagementActivity : AppCompatActivity() {
         // Register BroadcastReceiver for Wi-Fi Direct events
         registerPeerReceiver()
 
-        sendMessageButton.setOnClickListener{
-            sendMessage()
-        }
+        // Send message button listener
+        sendMessageButton.setOnClickListener { sendMessage() }
     }
 
     private fun initializeViews() {
@@ -135,6 +134,9 @@ class ClassManagementActivity : AppCompatActivity() {
         sendMessageButton = findViewById(R.id.send_message_button)
         chatMessagesTextView = findViewById(R.id.chat_messages)
         closeChatButton = findViewById(R.id.close_chat_button)
+
+        // Close chat button listener
+        closeChatButton.setOnClickListener { closeChatInterface() }
     }
 
     @SuppressLint("MissingPermission")
@@ -146,25 +148,25 @@ class ClassManagementActivity : AppCompatActivity() {
         startTime = System.currentTimeMillis()
 
         // Display Class and Network Info
-         wifiP2pManager.requestGroupInfo(channel){group ->
-             val ssid = group.networkName
-             val password = group.passphrase
+        wifiP2pManager.requestGroupInfo(channel) { group ->
+            val ssid = group.networkName
+            val password = group.passphrase
 
-             classInfoTextView.text = """
+            classInfoTextView.text = """
                 Course Name: $courseName
                 Course Code: $courseCode
                 Session Number: $courseSessionNumber
                 Session Type: $sessionType
                 """.trimIndent()
 
-             networkInfoTextView.text = """
+            networkInfoTextView.text = """
                 Network SSID: $ssid
                 Network Password: $password
                 """.trimIndent()
-         }
+        }
 
-        // Initialize AES key and IV (You may want to modify this part according to your logic)
-        val seed = "your_seed_based_on_logic" // Replace this with actual seed logic
+        // Initialize AES key and IV
+        val seed = "studentMessage" // Replace this with actual seed logic
         aesKey = generateAESKey(seed)
         aesIv = generateIV(seed)
     }
@@ -221,19 +223,11 @@ class ClassManagementActivity : AppCompatActivity() {
         if (checkPermissions()) {
             wifiP2pManager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
-                    Toast.makeText(
-                        this@ClassManagementActivity,
-                        "Discovery started",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(this@ClassManagementActivity, "Discovery started", Toast.LENGTH_SHORT).show()
                 }
 
                 override fun onFailure(reason: Int) {
-                    Toast.makeText(
-                        this@ClassManagementActivity,
-                        "Discovery failed: $reason",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(this@ClassManagementActivity, "Discovery failed: $reason", Toast.LENGTH_SHORT).show()
                 }
             })
         } else {
@@ -245,105 +239,91 @@ class ClassManagementActivity : AppCompatActivity() {
         super.onDestroy()
         unregisterReceiver(peerReceiver)
         handler.removeCallbacks(runnable)
+        tcpServer.close() // Ensure the server is closed on destruction
     }
 
     private fun checkPermissions(): Boolean {
-        return ActivityCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED &&
-                ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.NEARBY_WIFI_DEVICES
-                ) == PackageManager.PERMISSION_GRANTED
+        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun requestPermissions() {
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.NEARBY_WIFI_DEVICES
-            ),
-            REQUEST_CODE_PERMISSIONS
-        )
+        ActivityCompat.requestPermissions(this,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.NEARBY_WIFI_DEVICES),
+            REQUEST_CODE_PERMISSIONS)
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CODE_PERMISSIONS && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            discoverPeers()
-        } else {
-            Toast.makeText(
-                this,
-                "Permissions are required for the app to function",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
+    private fun endSession() {
+        // Logic to end the session
+        finish() // Close the activity
     }
 
     private fun openChat(studentId: String) {
         currentChatStudentId = studentId
-        chatWithStudentTextView.text = "Chatting with: $studentId"
+        chatWithStudentTextView.text = "Chat with $studentId"
         chatInterface.visibility = View.VISIBLE
-        loadChatMessages() // Load existing chat messages if necessary
     }
 
-    fun closeChatInterface() {
-        val chatInterface = findViewById<LinearLayout>(R.id.chat_interface)
-        val closeChatButton = findViewById<Button>(R.id.close_chat_button)
-
+    private fun closeChatInterface() {
+        currentChatStudentId = null
         chatInterface.visibility = View.GONE
-        closeChatButton.visibility = View.GONE // Hide the button when chat is closed
+        chatMessagesTextView.text = "" // Clear chat messages
+    }
+
+    private val connectedStudents = mutableSetOf<String>()
+
+    // When a new student connects
+    fun onStudentConnected(studentId: String) {
+        connectedStudents.add(studentId)
+    }
+
+    // When a student disconnects
+    fun onStudentDisconnected(studentId: String) {
+        connectedStudents.remove(studentId)
     }
 
     private fun sendMessage() {
-        val message = messageInput.text.toString()
-        if (currentChatStudentId != null) {
-            val encryptedMessage = encryptMessage(message) // Encrypt the message
-            // Send the encrypted message logic here
-            // e.g., sendMessageToStudent(currentChatStudentId, encryptedMessage)
-            tcpServer.sendMessage(currentChatStudentId!!, message)
-
-            // For display purposes, just show it in chat messages view
-            chatMessagesTextView.append("\nMe: $message")
+        val message = messageInput.text.toString().trim()
+        if (message.isNotEmpty() && currentChatStudentId != null && connectedStudents.contains(currentChatStudentId)) {
+            val encryptedMessage = encryptMessage(message)
+            tcpServer.sendMessage(currentChatStudentId!!, encryptedMessage)
+            chatMessagesTextView.append("\nYou: $message")
             messageInput.text.clear()
         } else {
-            Toast.makeText(this, "No student selected for chat", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Please select a connected student and enter a message", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun loadChatMessages() {
-        // Load existing messages logic here, if necessary
-        // For display purposes, this could be a static list or fetched from a server
-    }
+
 
     private fun encryptMessage(message: String): String {
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, aesIv)
-        val encrypted = cipher.doFinal(message.toByteArray(Charsets.UTF_8))
+        val encrypted = cipher.doFinal(message.toByteArray())
         return Base64.getEncoder().encodeToString(encrypted)
     }
 
-    private fun endSession() {
-        // End the session logic here
-        tcpServer.close()
-        Toast.makeText(this, "Session ended", Toast.LENGTH_SHORT).show()
-        finish()
+    private fun decryptMessage(encryptedMessage: String): String {
+        return try {
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(Cipher.DECRYPT_MODE, aesKey, aesIv)
+            val decoded = Base64.getDecoder().decode(encryptedMessage)
+            val decrypted = cipher.doFinal(decoded)
+            String(decrypted)
+        } catch (e: Exception) {
+            Log.e("ClassManagementActivity", "Decryption error: ${e.message}")
+            "Error decrypting message"
+        }
     }
 
-    // AES Key Generation
+
     private fun generateAESKey(seed: String): SecretKeySpec {
-        val keyBytes = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
-        return SecretKeySpec(keyBytes, "AES")
+        val key = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
+        return SecretKeySpec(key, "AES")
     }
 
     private fun generateIV(seed: String): IvParameterSpec {
-        val ivBytes = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray()).copyOf(16)
-        return IvParameterSpec(ivBytes)
+        val iv = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray()).copyOf(16)
+        return IvParameterSpec(iv)
     }
 }
