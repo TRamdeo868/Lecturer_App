@@ -3,7 +3,6 @@ package com.example.lecturerapp
 import android.util.Log
 import java.io.IOException
 import java.io.PrintWriter
-import kotlin.Exception
 import kotlin.concurrent.thread
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -14,110 +13,184 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.ConcurrentLinkedQueue
 
-class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageReceived: (String) -> Unit) {
+class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageReceived: (String, String) -> Unit) {
     companion object {
         const val DEFAULT_PORT: Int = 8888
     }
 
-    private val serverSocket: ServerSocket = ServerSocket(port, 0, InetAddress.getByName("0.0.0.0"))
-    private val clientMap: HashMap<String, Socket> = HashMap()
+    private var svrSocket: ServerSocket? = null
+    private val clientMap: HashMap<String, Socket> = HashMap() // Map from studentID to Socket
+    private val keyMap: HashMap<String, SecretKeySpec> = HashMap() // Map from studentID to AES key
+    private val ivMap: HashMap<String, IvParameterSpec> = HashMap() // Map from studentID to IV
     private val studentIds = List(10) { (816117992 + it).toString() }
-    private var isRunning = true
+    private var isRunning: Boolean = true
+    var messageQueue = ConcurrentLinkedQueue<String>() // Queue to handle messages
 
     init {
-        Log.e("TcpServer", "Server is starting on port $port ip address: ${serverSocket.inetAddress.hostAddress}")
-        thread {
-            while (isRunning) {
-                try {
-                    val clientSocket = serverSocket.accept()
-                    Log.e("TcpServer", "Accepted a connection from: ${clientSocket.inetAddress.hostName}")
-                    handleClientSocket(clientSocket)
-                } catch (e: SocketException) {
-                    if(isRunning){
-                        Log.e("TcpServer", "Error accepting connection", e)
-                    }else{
-                        Log.d("TcpServer", "Server socket closed, stopping server loop.")
+        try {
+            svrSocket = ServerSocket(port, 0, InetAddress.getByName("0.0.0.0"))
+            Log.e("TcpServer", "Server is starting on port $port ip address: ${svrSocket?.inetAddress?.hostAddress}")
+            thread {
+                while (isRunning) {
+                    try {
+                        Log.e("TcpServer", "Waiting for client connection...")
+                        val clientSocket = svrSocket?.accept()
+                        Log.e("TcpServer", "Accepted a connection from: ${clientSocket?.inetAddress?.hostAddress}")
+                        clientSocket?.let { handleClientSocket(it) }
+                    } catch (e: SocketException) {
+                        if (!isRunning) {
+                            Log.d("TcpServer", "Server socket closed, stopping server loop.")
+                        } else {
+                            Log.e("TcpServer", "Error accepting connection: ${e.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TcpServer", "Unexpected error accepting connection: ${e.message}")
                     }
-                }catch (e: Exception){
-                    Log.e("TcpServer", "Unexpected error accepting connection", e)
                 }
             }
+        } catch (e: Exception) {
+            Log.e("TcpServer", "Server initialization failed: ${e.message}")
+        }
+    }
+
+    private fun handleClientSocket(socket: Socket) {
+        socket.inetAddress.hostAddress?.let { clientAddress ->
+            Log.d("TcpServer", "Handling client socket for $clientAddress")
+            thread {
+                val clientReader = socket.inputStream.bufferedReader()
+                val clientWriter = socket.outputStream.bufferedWriter()
+                var studentId: String?
+
+                try {
+                    // Initial handshake
+                    val initialMessage = clientReader.readLine()
+                    if (initialMessage == "I am here") {
+                        clientWriter.write("Send your Student ID\n")
+                        clientWriter.flush()
+
+                        // Capture the student ID
+                        studentId = clientReader.readLine()
+                        if (studentIds.contains(studentId)) {
+                            // Challenge-Response Authentication logic remains unchanged
+                            studentId?.let { id ->
+                                clientMap[id] = socket
+                                receiveMessage(id, socket)
+                            }
+                        } else {
+                            Log.d("TcpServer", "Invalid Student ID: $studentId")
+                        }
+                    }
+
+                    // Handling incoming messages
+                    while (socket.isConnected) {
+                        val encryptedMessage = clientReader.readLine()
+                        if (encryptedMessage != null) {
+                            val seed = hashStrSha256(clientAddress)
+                            val aesKey = generateAESKey(seed)
+                            val aesIv = generateIV(seed)
+                            val decryptedMessage = decryptMessage(encryptedMessage, aesKey, aesIv)
+                            Log.d("TcpServer", "Received from $clientAddress: $decryptedMessage")
+                            onMessageReceived(decryptedMessage, clientAddress)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("TcpServer", "Error with client $clientAddress", e)
+                    clientMap.remove(clientAddress)
+                    socket.close()
+                }
+            }
+
+            // Handling outgoing messages
+            thread {
+                val clientWriter = socket.outputStream.bufferedWriter()
+                while (socket.isConnected) {
+                    while (messageQueue.isNotEmpty()) {
+                        val message = messageQueue.poll()
+                        if (message != null) {
+                            val seed = hashStrSha256(clientAddress)
+                            val aesKey = generateAESKey(seed)
+                            val aesIv = generateIV(seed)
+                            val encryptedMessage = encryptMessage(message, aesKey, aesIv)
+
+                            clientWriter.write(encryptedMessage)
+                            clientWriter.newLine()
+                            clientWriter.flush()
+                            Log.d("TcpServer", "Sent to $clientAddress: $encryptedMessage")
+                        }
+                    }
+                    Thread.sleep(100)
+                }
+            }
+        }
+    }
+
+    fun receiveMessage(studentId: String, socket: Socket) {
+        thread {
+            try {
+                val reader = socket.inputStream.bufferedReader()
+
+                while (socket.isConnected) {
+                    val encryptedMessage = reader.readLine()
+                    if (encryptedMessage != null) {
+                        val seed = hashStrSha256(studentId)
+                        val aesKey = generateAESKey(seed)
+                        val aesIv = generateIV(seed)
+                        val decryptedMessage = decryptMessage(encryptedMessage, aesKey, aesIv)
+
+                        Log.d("TcpServer", "Received from $studentId: $decryptedMessage")
+                        onMessageReceived(decryptedMessage, studentId)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TcpServer", "Error receiving message from $studentId", e)
+                clientMap.remove(studentId)
+                socket.close()
+            }
+        }
+    }
+
+    fun sendMessage(studentId: String, plainMessage: String) {
+        val clientSocket = clientMap[studentId]
+        if (clientSocket != null) {
+            try {
+                val seed = hashStrSha256(studentId)
+                val aesKey = generateAESKey(seed)
+                val aesIv = generateIV(seed)
+                val encryptedMessage = encryptMessage(plainMessage, aesKey, aesIv)
+
+                val writer = PrintWriter(clientSocket.outputStream, true)
+                writer.println(encryptedMessage)
+                Log.d("TcpServer", "Message sent to $studentId: $encryptedMessage")
+            } catch (e: IOException) {
+                Log.e("TcpServer", "Error sending message to $studentId", e)
+                clientMap.remove(studentId)
+            }
+        } else {
+            Log.e("TcpServer", "Client socket for $studentId not found")
+        }
+    }
+
+    fun stopServer() {
+        isRunning = false
+        try {
+            svrSocket?.close()
+            clientMap.values.forEach { it.close() }
+            clientMap.clear()
+            keyMap.clear()
+            ivMap.clear()
+            Log.d("TcpServer", "Server stopped successfully.")
+        } catch (e: IOException) {
+            Log.e("TcpServer", "Error stopping server", e)
         }
     }
 
     fun isRunning(): Boolean {
-        return !serverSocket.isClosed
+        return isRunning
     }
 
-    private fun handleClientSocket(socket: Socket) {
-        val clientAddress = socket.inetAddress.hostAddress
-        clientAddress?.let {
-            clientMap[it] = socket
-            Log.e("TcpServer", "New connection from: $it")
-
-            thread {
-                try {
-                    val reader = socket.inputStream.bufferedReader()
-                    val writer = socket.outputStream.bufferedWriter()
-
-                    while (socket.isConnected) {
-                        val studentMessage = reader.readLine()
-                        if (studentMessage != null && studentIds.contains(studentMessage)) {
-                            val challenge = (1000..9999).random().toString()
-                            writer.write("$challenge\n")
-                            writer.flush()
-
-                            val response = reader.readLine()
-                            if (response != null) {
-                                val seed = hashStrSha256(studentMessage)
-                                val aesKey = generateAESKey(seed)
-                                val aesIv = generateIV(seed)
-
-                                val decryptedResponse = decryptMessage(response, aesKey, aesIv)
-                                if (decryptedResponse == challenge) {
-                                    Log.d("TcpServer", "Student Authenticated")
-                                    onMessageReceived(studentMessage)
-
-                                    // Allow chat after successful authentication
-                                    receiveMessage(studentMessage, socket)
-                                    while (socket.isConnected) {
-                                        val chatMessage = reader.readLine()
-                                        if (chatMessage != null) {
-                                            val decryptedMessage = decryptMessage(chatMessage, aesKey, aesIv)
-                                            Log.d("TcpServer", "Received from $it: $decryptedMessage")
-                                            // Optionally respond to the message
-                                        }
-                                    }
-                                } else {
-                                    Log.d("TcpServer", "Student Authentication Failed")
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("TcpServer", "Error with client $it", e)
-                    clientMap.remove(it)
-                    socket.close()
-                }
-            }
-        }
-    }
-
-
-    fun close() {
-        isRunning = false // Stop the server loop
-        try {
-            serverSocket.close()
-            clientMap.values.forEach { it.close() } // Close all client sockets
-            clientMap.clear()
-            Log.d("TcpServer", "Server closed successfully.")
-        } catch (e: IOException) {
-            Log.e("TcpServer", "Error closing server", e)
-        }
-    }
-
-    // Encryption and Decryption methods provided
+    // Hashing, encryption, and decryption methods
     fun hashStrSha256(str: String): String {
         val algorithm = "SHA-256"
         val hashedString = MessageDigest.getInstance(algorithm).digest(str.toByteArray(Charsets.UTF_8))
@@ -125,85 +198,27 @@ class TcpServer(private val port: Int = DEFAULT_PORT, private val onMessageRecei
     }
 
     fun generateAESKey(seed: String): SecretKeySpec {
-        val first32Chars = seed.take(32).padEnd(32, '0')  // Ensure length is 32
+        val first32Chars = seed.take(32).padEnd(32, '0')
         return SecretKeySpec(first32Chars.toByteArray(), "AES")
     }
 
     fun generateIV(seed: String): IvParameterSpec {
-        val first16Chars = seed.take(16).padEnd(16, '0')  // Ensure length is 16
+        val first16Chars = seed.take(16).padEnd(16, '0')
         return IvParameterSpec(first16Chars.toByteArray())
     }
 
     fun encryptMessage(plaintext: String, aesKey: SecretKeySpec, aesIv: IvParameterSpec): String {
-        val plainTextByteArr = plaintext.toByteArray()
-
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, aesIv)
-
-        val encrypt = cipher.doFinal(plainTextByteArr)
-        return Base64.getEncoder().encodeToString(encrypt)
+        val encrypted = cipher.doFinal(plaintext.toByteArray())
+        return Base64.getEncoder().encodeToString(encrypted)
     }
 
     fun decryptMessage(encryptedText: String, aesKey: SecretKeySpec, aesIv: IvParameterSpec): String {
-        val textToDecrypt = Base64.getDecoder().decode(encryptedText)
-
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.DECRYPT_MODE, aesKey, aesIv)
-
-        val decrypt = cipher.doFinal(textToDecrypt)
-        return String(decrypt)
-    }
-
-    // Add this method inside the TcpServer class
-    fun receiveMessage(studentMessage: String, socket: Socket) {
-        val clientAddress = socket.inetAddress.hostAddress
-
-        if (clientMap.containsKey(clientAddress)) {
-            thread {
-                try {
-                    val reader = socket.inputStream.bufferedReader()
-
-                    while (socket.isConnected) {
-                        val chatMessage = reader.readLine()
-                        if (chatMessage != null) {
-                            // Decrypt the received message
-                            val seed = hashStrSha256(studentMessage)
-                            val aesKey = generateAESKey(seed)
-                            val aesIv = generateIV(seed)
-                            val decryptedMessage = decryptMessage(chatMessage, aesKey, aesIv)
-
-                            Log.d("TcpServer", "Received from $clientAddress: $decryptedMessage")
-                            // Invoke the onMessageReceived callback to handle the message
-                            onMessageReceived(decryptedMessage)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("TcpServer", "Error receiving message from $clientAddress", e)
-                    clientMap.remove(clientAddress)
-                    socket.close()
-                }
-            }
-        } else {
-            Log.e("TcpServer", "Client not connected: $clientAddress")
-        }
-    }
-
-
-    fun sendMessage(currentChatStudentId: String, encryptedMessage: String) {
-        val clientSocket = clientMap[currentChatStudentId]
-        if (clientSocket != null) {
-            try {
-                val outputStream = clientSocket.getOutputStream()
-                val writer = PrintWriter(outputStream, true)
-                writer.println(encryptedMessage)
-                Log.d("TcpServer", "Message sent to $currentChatStudentId: $encryptedMessage")
-            } catch (e: IOException) {
-                Log.e("TcpServer", "Error sending message to $currentChatStudentId", e)
-                // Handle the error, possibly by removing the client from the map
-                clientMap.remove(currentChatStudentId)
-            }
-        } else {
-            Log.e("TcpServer", "Client socket for $currentChatStudentId not found")
-        }
+        val decodedBytes = Base64.getDecoder().decode(encryptedText)
+        val decryptedBytes = cipher.doFinal(decodedBytes)
+        return String(decryptedBytes)
     }
 }

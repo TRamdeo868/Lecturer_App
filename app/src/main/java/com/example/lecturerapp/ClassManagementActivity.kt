@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.wifi.p2p.WifiP2pDeviceList
-import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Bundle
 import android.os.Handler
@@ -24,12 +23,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlin.properties.Delegates
+import java.io.IOException
+import java.net.Socket
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
-import java.util.Base64
+import kotlin.properties.Delegates
 
 class ClassManagementActivity : AppCompatActivity() {
 
@@ -64,59 +64,30 @@ class ClassManagementActivity : AppCompatActivity() {
     private lateinit var aesIv: IvParameterSpec
 
     private val REQUEST_CODE_PERMISSIONS = 1
+    private val connectedStudents = mutableMapOf<String, Socket>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_class_management)
 
-        // Initialize views
         initializeViews()
+        initializeWifiDirect()
 
-        // Initialize WiFi-Direct Manager
-        wifiP2pManager = getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
-        channel = wifiP2pManager.initialize(this, mainLooper, null)
-
-        // Request permissions and start discovering peers
         if (!checkPermissions()) {
             requestPermissions()
         } else {
             discoverPeers()
         }
 
-        // Get Intent data from StartClassActivity
         retrieveIntentData()
+        startTcpServer()
 
-        // Initialize TcpServer and handle incoming messages
-        tcpServer = TcpServer(8888) { message ->
-            runOnUiThread {
-                chatMessagesTextView.append("\nStudent: ${decryptMessage(message)}")
-            }
-        }
-
-        // Check if TcpServer is running
-        if (tcpServer.isRunning()) {
-            Log.d("ClassManagementActivity", "Server is running")
-        } else {
-            Log.e("ClassManagementActivity", "Server failed to start")
-        }
-
-        // Setup RecyclerView for attendees
-        attendeesAdapter = AttendeesAdapter(this, attendeesList) { studentId ->
-            openChat(studentId) // Open chat when button is clicked
-        }
-        attendeesRecyclerView.layoutManager = LinearLayoutManager(this)
-        attendeesRecyclerView.adapter = attendeesAdapter
-
-        // End Session button listener
-        endSessionButton.setOnClickListener { endSession() }
-
-        // Update the UI with running time
+        setupAttendeesRecyclerView()
+        setupEndSessionButton()
         startUpdatingRunningTime()
 
-        // Register BroadcastReceiver for Wi-Fi Direct events
         registerPeerReceiver()
 
-        // Send message button listener
         sendMessageButton.setOnClickListener { sendMessage() }
     }
 
@@ -127,7 +98,6 @@ class ClassManagementActivity : AppCompatActivity() {
         attendeesRecyclerView = findViewById(R.id.attendees_recycler_view)
         runningTimeTextView = findViewById(R.id.running_time_text_view)
 
-        // Initialize chat interface views
         chatInterface = findViewById(R.id.chat_interface)
         chatWithStudentTextView = findViewById(R.id.chat_with_student)
         messageInput = findViewById(R.id.message_input)
@@ -135,8 +105,12 @@ class ClassManagementActivity : AppCompatActivity() {
         chatMessagesTextView = findViewById(R.id.chat_messages)
         closeChatButton = findViewById(R.id.close_chat_button)
 
-        // Close chat button listener
         closeChatButton.setOnClickListener { closeChatInterface() }
+    }
+
+    private fun initializeWifiDirect() {
+        wifiP2pManager = getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+        channel = wifiP2pManager.initialize(this, mainLooper, null)
     }
 
     @SuppressLint("MissingPermission")
@@ -147,7 +121,6 @@ class ClassManagementActivity : AppCompatActivity() {
         sessionType = intent.getStringExtra("session_type") ?: "N/A"
         startTime = System.currentTimeMillis()
 
-        // Display Class and Network Info
         wifiP2pManager.requestGroupInfo(channel) { group ->
             val ssid = group.networkName
             val password = group.passphrase
@@ -165,10 +138,52 @@ class ClassManagementActivity : AppCompatActivity() {
                 """.trimIndent()
         }
 
-        // Initialize AES key and IV
-        val seed = "studentMessage" // Replace this with actual seed logic
+        val seed = "studentMessage"
         aesKey = generateAESKey(seed)
         aesIv = generateIV(seed)
+    }
+
+    private fun startTcpServer() {
+        tcpServer = TcpServer(8888) { message, studentId ->
+            runOnUiThread {
+                chatMessagesTextView.append("\nStudent $studentId: $message")
+            }
+        }
+
+        if (tcpServer.isRunning()) {
+            Log.d("ClassManagementActivity", "Server is running")
+        } else {
+            Log.e("ClassManagementActivity", "Server failed to start")
+        }
+    }
+
+    private fun setupAttendeesRecyclerView() {
+        attendeesAdapter = AttendeesAdapter(this, attendeesList) { studentId ->
+            openChat(studentId)
+        }
+        attendeesRecyclerView.layoutManager = LinearLayoutManager(this)
+        attendeesRecyclerView.adapter = attendeesAdapter
+    }
+
+    private fun setupEndSessionButton() {
+        endSessionButton.setOnClickListener { endSession() }
+    }
+
+    private fun startUpdatingRunningTime() {
+        handler = Handler(Looper.getMainLooper())
+        runnable = object : Runnable {
+            override fun run() {
+                val elapsedTime = System.currentTimeMillis() - startTime
+                val seconds = (elapsedTime / 1000) % 60
+                val minutes = (elapsedTime / (1000 * 60)) % 60
+                val hours = (elapsedTime / (1000 * 60 * 60)) % 24
+
+                runningTimeTextView.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
+
+                handler.postDelayed(this, 1000)
+            }
+        }
+        handler.post(runnable)
     }
 
     private fun registerPeerReceiver() {
@@ -196,26 +211,10 @@ class ClassManagementActivity : AppCompatActivity() {
     private fun updateAttendeesList() {
         attendeesList.clear()
         for (device in peers.deviceList) {
-            attendeesList.add(device.deviceName)
+            val studentId = device.deviceName
+            attendeesList.add(studentId)
         }
         attendeesAdapter.notifyDataSetChanged()
-    }
-
-    private fun startUpdatingRunningTime() {
-        handler = Handler(Looper.getMainLooper())
-        runnable = object : Runnable {
-            override fun run() {
-                val elapsedTime = System.currentTimeMillis() - startTime
-                val seconds = (elapsedTime / 1000) % 60
-                val minutes = (elapsedTime / (1000 * 60)) % 60
-                val hours = (elapsedTime / (1000 * 60 * 60)) % 24
-
-                runningTimeTextView.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
-                handler.postDelayed(this, 1000)
-            }
-        }
-        handler.post(runnable)
     }
 
     @SuppressLint("MissingPermission")
@@ -235,27 +234,36 @@ class ClassManagementActivity : AppCompatActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(peerReceiver)
-        handler.removeCallbacks(runnable)
-        tcpServer.close() // Ensure the server is closed on destruction
+    private fun sendMessage() {
+        val message = messageInput.text.toString()
+        if (message.isNotEmpty() && currentChatStudentId != null) {
+            val encryptedMessage = encryptMessage(message)
+            val socket = connectedStudents[currentChatStudentId]
+
+            socket?.let {
+                Thread {
+                    try {
+                        it.getOutputStream().write(encryptedMessage)
+                        runOnUiThread {
+                            chatMessagesTextView.append("\nYou: $message")
+                        }
+                    } catch (e: IOException) {
+                        runOnUiThread {
+                            Toast.makeText(this, "Error sending message", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            }
+            messageInput.text.clear()
+        } else {
+            Toast.makeText(this, "Please enter a message", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun checkPermissions(): Boolean {
-        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun requestPermissions() {
-        ActivityCompat.requestPermissions(this,
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.NEARBY_WIFI_DEVICES),
-            REQUEST_CODE_PERMISSIONS)
-    }
-
-    private fun endSession() {
-        // Logic to end the session
-        finish() // Close the activity
+    private fun encryptMessage(message: String): ByteArray {
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, aesKey, aesIv)
+        return cipher.doFinal(message.toByteArray())
     }
 
     private fun openChat(studentId: String) {
@@ -265,65 +273,37 @@ class ClassManagementActivity : AppCompatActivity() {
     }
 
     private fun closeChatInterface() {
-        currentChatStudentId = null
         chatInterface.visibility = View.GONE
-        chatMessagesTextView.text = "" // Clear chat messages
+        currentChatStudentId = null
     }
 
-    private val connectedStudents = mutableSetOf<String>()
-
-    // When a new student connects
-    fun onStudentConnected(studentId: String) {
-        connectedStudents.add(studentId)
+    private fun endSession() {
+        tcpServer.stopServer()
+        finish()
     }
 
-    // When a student disconnects
-    fun onStudentDisconnected(studentId: String) {
-        connectedStudents.remove(studentId)
+    private fun checkPermissions(): Boolean {
+        return ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_WIFI_STATE) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun sendMessage() {
-        val message = messageInput.text.toString().trim()
-        if (message.isNotEmpty() && currentChatStudentId != null && connectedStudents.contains(currentChatStudentId)) {
-            val encryptedMessage = encryptMessage(message)
-            tcpServer.sendMessage(currentChatStudentId!!, encryptedMessage)
-            chatMessagesTextView.append("\nYou: $message")
-            messageInput.text.clear()
-        } else {
-            Toast.makeText(this, "Please select a connected student and enter a message", Toast.LENGTH_SHORT).show()
-        }
+    private fun requestPermissions() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_WIFI_STATE),
+            REQUEST_CODE_PERMISSIONS
+        )
     }
-
-
-
-    private fun encryptMessage(message: String): String {
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, aesKey, aesIv)
-        val encrypted = cipher.doFinal(message.toByteArray())
-        return Base64.getEncoder().encodeToString(encrypted)
-    }
-
-    private fun decryptMessage(encryptedMessage: String): String {
-        return try {
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, aesKey, aesIv)
-            val decoded = Base64.getDecoder().decode(encryptedMessage)
-            val decrypted = cipher.doFinal(decoded)
-            String(decrypted)
-        } catch (e: Exception) {
-            Log.e("ClassManagementActivity", "Decryption error: ${e.message}")
-            "Error decrypting message"
-        }
-    }
-
 
     private fun generateAESKey(seed: String): SecretKeySpec {
-        val key = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
+        val digest = MessageDigest.getInstance("SHA-256")
+        val key = digest.digest(seed.toByteArray(Charsets.UTF_8))
         return SecretKeySpec(key, "AES")
     }
 
     private fun generateIV(seed: String): IvParameterSpec {
-        val iv = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray()).copyOf(16)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val iv = digest.digest(seed.toByteArray(Charsets.UTF_8)).copyOfRange(0, 16)
         return IvParameterSpec(iv)
     }
 }
